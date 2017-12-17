@@ -35,20 +35,21 @@ connection = sqlite3.connect("reddit_database.db")
 c = connection.cursor()
 
 def create_comment_table():
-    c.execute("""CREATE TABLE if not exists reddit_comment_table(body text, name int)""")
+    c.execute("""CREATE TABLE if not exists reddit_comment_table(body text, body_id text)""")
     
 
 def create_table():
     c.execute("""CREATE TABLE if not exists reddit_table(subreddit text,
-score int, body text, name int, created_utc int, parent_data text, parent_id int""")
+score int, body text, body_id int, parent_body text, parent_id text, created_time int)""")
 
 def transaction(sql):
     global sql_transaction
     sql_transaction.append(sql)
-    if len(sql_transaction) is 100:
+    if len(sql_transaction) == 100:
         c.execute("BEGIN TRANSACTION")
         for s in sql_transaction:
             try:
+                #print("sdf")
                 c.execute(s)
             except:
                 pass
@@ -65,13 +66,51 @@ def retriveandstorecommenttable():
             comment_id = row['name']
             if clean_data(comment):
                 comment = format_comment(comment)
-                sql = """INSERT INTO reddit_comment_table(body, name)
+                sql = """INSERT INTO reddit_comment_table(body, body_id)
                 VALUES("{}", "{}");""".format(comment, comment_id)
                 transaction(sql)
 
             if rows_count % 1000 == 0:
                 print("rows :{} time :{}".format(rows_count, str(datetime.now())))
-            
+            if rows_count == 10000:
+                rows_count = 0
+                break
+def storemaintable():
+    with open(path) as f:
+        for row in f:
+            global rows_count
+            rows_count = rows_count + 1
+            row = json.loads(row)
+            subreddit = row['subreddit']
+            body_id = row['name']
+            score = row['score']
+            parent_id = row['parent_id']
+            time = row['created_utc']
+            body = find_parent(body_id)
+            parent_body = find_parent(parent_id)
+            if parent_body and body:
+                sql = """INSERT INTO reddit_table(subreddit, score, body, body_id, parent_body, parent_id,
+                created_time) VALUES("{}","{}","{}","{}","{}","{}","{}"
+                )""".format(subreddit, score, body, body_id, parent_body, parent_id, time)
+                transaction(sql)
+                
+            if rows_count % 1000 == 0:
+                print("main_rows :{} time{}".format(rows_count, str(datetime.now())))
+            if rows_count == 10000:
+                rows_count = 0
+                break
+
+
+def find_parent(parent_id):
+    sql = "SELECT body FROM reddit_comment_table WHERE body_id = '{}'".format(parent_id)
+    c.execute(sql)
+    result = c.fetchone()
+    if result is not None:
+        return result[0]
+    else:
+        return False
+        
+    
 
 def format_comment(comment):
     comment = comment.replace("\n", "newline").replace("\r", 'newline')
@@ -102,7 +141,9 @@ def count():
 
 
 if __name__ == "__main__":
-    count()
-    #create_comment_table()
-    #retriveandstorecommenttable()
+    #count()
+    create_comment_table()
+    retriveandstorecommenttable()
+    create_table()
+    storemaintable()
     #show()
